@@ -7,6 +7,7 @@ import xml.dom.minidom
 import re
 import pprint
 import sys
+import datetime
 
 # TODO: get namespace prefixes from root element
 xs_prefix = 'xs:'
@@ -22,7 +23,7 @@ master_types = {
     'SoftwareAttributes': 'Software',
     'ApplicationAttributes': 'Application'
 }
-    
+
 
 # ----------------------------------------------------------------------- #
 # functions
@@ -160,7 +161,7 @@ def strip_aae_prefix(inStr):
     # strip 'aae:'
     outStr= re.sub(r'^'+aae_prefix, '', inStr)
     return outStr
-    
+
 # ----------------------------------------------------------------------- #
 # helper functions for XHTML output
 # ----------------------------------------------------------------------- #
@@ -170,7 +171,7 @@ def printHTMLHeader():
 def printHTMLFooter():
     print "</body></html>"
 
-def printHTMLVersion(version):
+def printHTMLTitle(version):
     print "<h1>Node classifications from MARS Schema %s</h1>" % version
 
 def printHTMLTable3Col(data_hash, title, classkey, subclasskey):
@@ -195,8 +196,8 @@ def printHTMLTable3Col(data_hash, title, classkey, subclasskey):
             if data_hash.has_key(sub_cl):
                 print "<tr><td>%s</td><td>%s</td><td>%s</td></tr>" % (cl, sub_cl, "<br />".join(data_hash[sub_cl]['_doc']))
             else:
-                sys.stderr.write("Error in Schema for "+subclasskey+ " \""+sub_cl+"\"\n") 
-                
+                sys.stderr.write("Error in Schema for "+subclasskey+ " \""+sub_cl+"\"\n")
+
     print "</tbody></table>"
 
 def printHTMLTable2Col(data_hash, title, classkey):
@@ -215,9 +216,72 @@ def printHTMLTable2Col(data_hash, title, classkey):
         if data_hash.has_key(cl):
             print "<tr><td>%s</td><td>%s</td></tr>" % (cl, "<br />".join(data_hash[cl]['_doc']))
         else:
-            sys.stderr.write("Error in Schema for "+classkey+ " \""+cl+"\"\n") 
-                
+            sys.stderr.write("Error in Schema for "+classkey+ " \""+cl+"\"\n")
+
     print "</tbody></table>"
+
+# ----------------------------------------------------------------------- #
+# helper functions for Asciidoc output
+# ----------------------------------------------------------------------- #
+def printAsciiDocHeader(date):
+    print ":toc:"
+    print ":revdate: %s" % date
+    print "\n<<<\n"
+    print "[NOTE]\n====\nThe MARS Schema uses a different versioning cycle from HIRO Product. It is expected to see the two versions deviate from each other.\n\nThis list was last updated on: *{revdate}*\n====\n\n"
+
+def printAsciiDocFooter():
+    print ""
+
+def printAsciiDocTitle(version):
+    print "= Node classifications from MARS Schema %s" % version
+
+def printAsciiDocTable3Col(data_hash, title, classkey, subclasskey):
+    print "== %s\n" % title
+    print "[cols=\"1,1,3\", options=\"header\"]"
+    print "|==="
+    print "|%s|%s|Description" % (classkey, subclasskey)
+    # here we do the data ordering
+    a_classes = {}
+    a_sub_classes = {}
+    for el in data_hash.keys():
+        a_class = data_hash[el][classkey]
+        a_sub_class = data_hash[el][subclasskey]
+        a_classes[a_class] = 0 # dummy value
+        if not a_sub_classes.has_key(a_class):
+            a_sub_classes[a_class] = []
+        a_sub_classes[a_class].append(a_sub_class)
+    # sort arrays...
+    for cl in sorted(a_classes.keys()):
+        for sub_cl in sorted(a_sub_classes[cl]):
+            # here we use the fact that 'key' in data_hash equals sub_cl
+            #print "DEBUG: title=[%s] cl=[%s] scl=[%s]" % (title, cl, sub_cl)
+            if data_hash.has_key(sub_cl):
+                print "|%s|%s|%s" % (cl, sub_cl, "<br />".join(data_hash[sub_cl]['_doc']))
+            else:
+                sys.stderr.write("Error in Schema for "+subclasskey+ " \""+sub_cl+"\"\n")
+
+    print "|===\n"
+
+def printAsciiDocTable2Col(data_hash, title, classkey):
+    print "== %s\n" % title
+    print "[cols=\"1,5\", options=\"header\"]"
+    print "|==="
+    print "|%s|Description" % (classkey)
+    # here we do the data ordering
+    a_classes = {}
+    for el in data_hash.keys():
+        a_class = data_hash[el][classkey]
+        a_classes[a_class] = 0 # dummy value
+    # sort arrays...
+    for cl in sorted(a_classes.keys()):
+        # here we use the fact that 'key' in data_hash equals sub_cl
+        #print "DEBUG: title=[%s] cl=[%s] scl=[%s]" % (title, cl, sub_cl)
+        if data_hash.has_key(cl):
+            print "|%s|%s" % (cl, "<br />".join(data_hash[cl]['_doc']))
+        else:
+            sys.stderr.write("Error in Schema for "+classkey+ " \""+cl+"\"\n")
+
+    print "|===\n"
 
 
 
@@ -239,8 +303,11 @@ def getXMLText(node):
 # main
 # ----------------------------------------------------------------------- #
 
-parser = argparse.ArgumentParser(description='')
+date = datetime.datetime.now().strftime("%d-%b-%Y")
+
+parser = argparse.ArgumentParser(description='parse specified MARS Schema file and generates a table of MARS node classifications')
 parser.add_argument("-s", "--schema", dest="schema_file", help="path to MARS schema file", required=True)
+parser.add_argument("-F", "--format", dest="output_format", help="format of result", default='html')
 args = parser.parse_args()
 
 # main data structure
@@ -249,23 +316,46 @@ data = {}
 
 schema_version = extract_from_xml(args, data)
 
-printHTMLHeader()
-printHTMLVersion(schema_version)
-printHTMLTable3Col(data['Application']['elements'], 
-                   "Application Node Classifications", 
-                   "ApplicationClass",
-                   "ApplicationSubClass" )
-printHTMLTable2Col(data['Resource']['elements'], 
-                   "Resource Node Classifications", 
-                   "ResourceClass" )
-printHTMLTable3Col(data['Software']['elements'], 
-                   "Software Node Classifications", 
-                   "SoftwareClass",
-                   "SoftwareSubClass" )
-printHTMLTable2Col(data['Machine']['elements'], 
-                   "Machine Node Classifications", 
-                   "MachineClass" )
-printHTMLFooter()
+if args.output_format == 'html':
+    printHTMLHeader()
+    printHTMLTitle(schema_version)
+    printHTMLTable3Col(data['Application']['elements'],
+                       "Application Node Classifications",
+                       "ApplicationClass",
+                       "ApplicationSubClass" )
+    printHTMLTable2Col(data['Resource']['elements'],
+                       "Resource Node Classifications",
+                       "ResourceClass" )
+    printHTMLTable3Col(data['Software']['elements'],
+                       "Software Node Classifications",
+                    "SoftwareClass",
+                       "SoftwareSubClass" )
+    printHTMLTable2Col(data['Machine']['elements'],
+                       "Machine Node Classifications",
+                       "MachineClass" )
+    printHTMLFooter()
+elif args.output_format == 'asciidoc':
+    printAsciiDocTitle(schema_version)
+    printAsciiDocHeader(date)
+    printAsciiDocTable3Col(data['Application']['elements'],
+                       "Application Node Classifications",
+                       "ApplicationClass",
+                       "ApplicationSubClass" )
+    printAsciiDocTable2Col(data['Resource']['elements'],
+                       "Resource Node Classifications",
+                       "ResourceClass" )
+    printAsciiDocTable3Col(data['Software']['elements'],
+                       "Software Node Classifications",
+                    "SoftwareClass",
+                       "SoftwareSubClass" )
+    printAsciiDocTable2Col(data['Machine']['elements'],
+                       "Machine Node Classifications",
+                       "MachineClass" )
+    printAsciiDocFooter()
+else:
+    print "Unsupported output format: %s" %  args.output_format
+    exit(1)
+
 
 # DEBUGGING OUTPUT
 #pp = pprint.PrettyPrinter(indent=4)
